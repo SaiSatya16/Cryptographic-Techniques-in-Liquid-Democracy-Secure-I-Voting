@@ -18,6 +18,7 @@ app = Flask(__name__)
 app.config.from_object(DevelopmentConfig)
 api.init_app(app)
 db.init_app(app)
+app.security = Security(app, datastore)
 app.app_context().push()
 
 

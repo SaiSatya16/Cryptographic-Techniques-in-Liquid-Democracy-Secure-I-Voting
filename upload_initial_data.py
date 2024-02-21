@@ -1,6 +1,6 @@
 from app import app
 from sec import datastore
-from model import db, Role , Category, Product, Association
+from model import db, User, Role, Scheme, Vote, Association
 from flask_security import hash_password
 from werkzeug.security import generate_password_hash
 

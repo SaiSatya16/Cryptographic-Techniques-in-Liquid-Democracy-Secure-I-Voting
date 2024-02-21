@@ -32,6 +32,7 @@ class Scheme(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), unique=True)
     description = db.Column(db.String(255))
+    votes = db.relationship('Vote', backref='scheme', secondary='association')
 
 
 class Vote(db.Model):
@@ -40,6 +41,8 @@ class Vote(db.Model):
     scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'))
     vote_value = db.Column(db.Integer)  # Customize based on your voting system
 
-    # Define relationships
-    user = db.relationship('User', backref=db.backref('votes', lazy='dynamic'))
-    scheme = db.relationship('Scheme', backref=db.backref('votes', lazy='dynamic'))
+#Scheme vote association
+class Association(db.Model):
+    scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'), primary_key=True, nullable=False)
+    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), primary_key=True, nullable=False)
+
