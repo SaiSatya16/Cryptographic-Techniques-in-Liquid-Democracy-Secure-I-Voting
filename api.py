@@ -81,16 +81,14 @@ update_vote_parser.add_argument('vote')
 #=================================Scheme api======================================================
 
 class SchemeApi(Resource):
-    def get(self, uid):
+    def get(self, id):
         data = []
         schemes = Scheme.query.all()
-        if not schemes:
-            raise NotFoundError(404)
         
         for scheme in schemes:
             allowed_to_vote = False
             #check if there is entry in usercurrentvote table with user_id and scheme_id
-            usercurrentvote = usercurrentvote.query.filter_by(user_id=uid, scheme_id=scheme.id).first()
+            usercurrentvote = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).first()
             if usercurrentvote:
                 allowed_to_vote = True
                 votes = []
@@ -118,9 +116,11 @@ class SchemeApi(Resource):
         db.session.commit()
         scheme = Scheme.query.filter_by(name=name).first()
         s_id = scheme.id
-        users = User.query.all()
+
+        #query only users with role voter
+        users = User.query.filter(User.roles.any(Role.name == 'Voter')).all()
         for user in users:
-            usercurrentvote = usercurrentvote(user_id=user.id, scheme_id=s_id, vote=None)
+            usercurrentvote = Usercurrentvote(user_id=user.id, scheme_id=s_id, vote=None)
             db.session.add(usercurrentvote)
         db.session.commit()
         return scheme   
@@ -145,7 +145,7 @@ class SchemeApi(Resource):
         if not scheme:
             raise NotFoundError(404)
         db.session.query(Vote).filter(Vote.scheme_id == id).delete()
-        db.session.query(usercurrentvote).filter(usercurrentvote.scheme_id == id).delete()
+        db.session.query(Usercurrentvote).filter(Usercurrentvote.scheme_id == id).delete()
         db.session.delete(scheme)
         db.session.commit()
         return {'message': 'Scheme deleted successfully'}
@@ -168,7 +168,7 @@ class VoteApi(Resource):
             raise BusinessValidationError(400, "BE1005", "Vote is required")
         vote = Vote(user_id=user_id, scheme_id=scheme_id, vote=vote)
         #delete the entry from usercurrentvote table and add the vote to vote table
-        usercurrentvote = usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()
+        usercurrentvote = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()
         if usercurrentvote:
             db.session.delete(usercurrentvote)
             db.session.add(vote)
@@ -179,7 +179,7 @@ class VoteApi(Resource):
     
 
 #==============================API Endpoints========================================
-api.add_resource(SchemeApi, '/scheme', '/scheme/<int:uid>')
+api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>')
 api.add_resource(VoteApi, '/vote')
 
     

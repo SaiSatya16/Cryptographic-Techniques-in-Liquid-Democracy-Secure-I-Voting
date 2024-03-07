@@ -20,8 +20,7 @@ class User(db.Model, UserMixin):
     fs_uniquifier = db.Column(db.String(255), unique=True, nullable=False)
     roles = db.relationship('Role', secondary='roles_users',
                             backref=db.backref('users', lazy='dynamic'))
-    currentvote = db.relationship('usercurrentvote', backref='user', lazy='dynamic')
-
+    currentvote = db.relationship('Usercurrentvote', backref='user', lazy='dynamic')
 
 class Role(db.Model, RoleMixin):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -42,7 +41,7 @@ class Vote(db.Model):
     scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'))
     vote = db.Column(db.Boolean, nullable=False)
 
-class usercurrentvote(db.Model):
+class Usercurrentvote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'))

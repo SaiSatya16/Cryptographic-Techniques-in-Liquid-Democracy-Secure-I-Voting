@@ -6,10 +6,10 @@ const Home = Vue.component("home", {
     template:  
     `
     <div>
-        <div v-if="role === 'admin'">
+        <div v-if="role === 'Admin'">
             <Adminhome></Adminhome>
         </div>
-        <div v-else>
+        <div v-if="role === 'Voter'">
             <Voterhome></Voterhome>
         </div>
     </div>
