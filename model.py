@@ -20,6 +20,7 @@ class User(db.Model, UserMixin):
     fs_uniquifier = db.Column(db.String(255), unique=True, nullable=False)
     roles = db.relationship('Role', secondary='roles_users',
                             backref=db.backref('users', lazy='dynamic'))
+    currentvote = db.relationship('usercurrentvote', backref='user', lazy='dynamic')
 
 
 class Role(db.Model, RoleMixin):
@@ -32,17 +33,23 @@ class Scheme(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), unique=True)
     description = db.Column(db.String(255))
-    votes = db.relationship('Vote', backref='scheme', secondary='association')
+    votes = db.relationship('Vote', backref='scheme', lazy='dynamic')
 
 
 class Vote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'))
-    vote_value = db.Column(db.Integer)  # Customize based on your voting system
+    vote = db.Column(db.Boolean, nullable=False)
 
-#Scheme vote association
-class Association(db.Model):
-    scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'), primary_key=True, nullable=False)
-    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), primary_key=True, nullable=False)
+class usercurrentvote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'))
+    vote = db.Column(db.Boolean)
+
+
+# class Association(db.Model):
+#     scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'), primary_key=True, nullable=False)
+#     vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), primary_key=True, nullable=False)
 

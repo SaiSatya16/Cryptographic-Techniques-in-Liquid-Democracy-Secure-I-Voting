@@ -22,6 +22,17 @@ def any_role_required(*roles):
         return decorator
     return wrapper
 
+#==========================Validation========================================================
+class NotFoundError(HTTPException):
+    def __init__(self,status_code):
+        message = {"error_code":"BE1009","error_message":"Not Found"}
+        self.response = make_response(json.dumps(message), status_code)
+
+class BusinessValidationError(HTTPException):
+    def __init__(self, status_code, error_code, error_message):
+        message = {"error_code":error_code,"error_message":error_message}
+        self.response = make_response(json.dumps(message), status_code)
+
 
 #==============================output fields========================================
 scheme_fields = {
@@ -34,112 +45,142 @@ vote_filelds = {
     'id': fields.Integer,
     'user_id': fields.Integer,
     'scheme_id': fields.Integer,
-    'vote_value': fields.Integer
+    'vote': fields.Boolean
 }
 
 #====================Create Scheme and Votes request pares=======================================
 
 
 create_scheme_parser = reqparse.RequestParser()
-create_scheme_parser.add_argument('name', type=str, required=True, help='Name is required')
-create_scheme_parser.add_argument('description', type=str, required=True, help='Description is required')
+create_scheme_parser.add_argument('name')
+create_scheme_parser.add_argument('description')
 
 
 
 create_vote_parser = reqparse.RequestParser()
-create_vote_parser.add_argument('user_id', type=int, required=True, help='User ID is required')
-create_vote_parser.add_argument('scheme_id', type=int, required=True, help='Scheme ID is required')
-create_vote_parser.add_argument('vote_value', type=int, required=True, help='Vote value is required')
+create_vote_parser.add_argument('user_id')
+create_vote_parser.add_argument('scheme_id')
+create_vote_parser.add_argument('vote')
 
 
 #====================Update Scheme and Votes request pares=======================================
 
 update_scheme_parser = reqparse.RequestParser()
-update_scheme_parser.add_argument('name', type=str, required=True, help='Name is required')
-update_scheme_parser.add_argument('description', type=str, required=True, help='Description is required')
+update_scheme_parser.add_argument('name')
+update_scheme_parser.add_argument('description')
 
 
 update_vote_parser = reqparse.RequestParser()
-update_vote_parser.add_argument('user_id', type=int, required=True, help='User ID is required')
-update_vote_parser.add_argument('scheme_id', type=int, required=True, help='Scheme ID is required')
-update_vote_parser.add_argument('vote_value', type=int, required=True, help='Vote value is required')
+update_vote_parser.add_argument('user_id')
+update_vote_parser.add_argument('scheme_id')
+update_vote_parser.add_argument('vote')
+
+
 
 
 #=================================Scheme api======================================================
 
 class SchemeApi(Resource):
-    @marshal_with(scheme_fields)
-    #get all schemes
-    def get(self):
+    def get(self, uid):
         data = []
         schemes = Scheme.query.all()
+        if not schemes:
+            raise NotFoundError(404)
+        
         for scheme in schemes:
-            data.append({'id': scheme.id, 'name': scheme.name, 'description': scheme.description})
+            allowed_to_vote = False
+            #check if there is entry in usercurrentvote table with user_id and scheme_id
+            usercurrentvote = usercurrentvote.query.filter_by(user_id=uid, scheme_id=scheme.id).first()
+            if usercurrentvote:
+                allowed_to_vote = True
+                votes = []
+                for vote in scheme.votes:
+                    votes.append({'id': vote.id, 'user_id': vote.user_id, 'scheme_id': vote.scheme_id, 'vote': vote.vote})
+                data.append({'id': scheme.id, 'name': scheme.name, 'description': scheme.description, 'allowed_to_vote': allowed_to_vote, 'votes': votes})
+            else:
+                votes = []
+                for vote in scheme.votes:
+                    votes.append({'id': vote.id, 'user_id': vote.user_id, 'scheme_id': vote.scheme_id, 'vote': vote.vote})
+                data.append({'id': scheme.id, 'name': scheme.name, 'description': scheme.description, 'votes': votes, 'allowed_to_vote': allowed_to_vote})
         return data
-
+    
     @marshal_with(scheme_fields)
     def post(self):
         args = create_scheme_parser.parse_args()
-        scheme = Scheme(name=args['name'], description=args['description'])
+        name = args.get('name', None)
+        description = args.get('description', None)
+        if not name:
+            raise BusinessValidationError(400, "BE1001", "Name is required")
+        if not description:
+            raise BusinessValidationError(400, "BE1002", "Description is required")
+        scheme = Scheme(name=name, description=description)
         db.session.add(scheme)
         db.session.commit()
-        return scheme
-
+        scheme = Scheme.query.filter_by(name=name).first()
+        s_id = scheme.id
+        users = User.query.all()
+        for user in users:
+            usercurrentvote = usercurrentvote(user_id=user.id, scheme_id=s_id, vote=None)
+            db.session.add(usercurrentvote)
+        db.session.commit()
+        return scheme   
+    
     @marshal_with(scheme_fields)
     def put(self, id):
         args = update_scheme_parser.parse_args()
-        scheme = Scheme.query.filter(Scheme.id == id).one()
-        scheme.name = args['name']
-        scheme.description = args['description']
+        name = args.get('name', None)
+        description = args.get('description', None)
+        scheme = Scheme.query.filter_by(id=id).first()
+        if not scheme:
+            raise NotFoundError(404)
+        if name:
+            scheme.name = name
+        if description:
+            scheme.description = description
         db.session.commit()
         return scheme
-
     
     def delete(self, id):
-        scheme = Scheme.query.filter(Scheme.id == id).one()
+        scheme = Scheme.query.filter_by(id=id).first()
+        if not scheme:
+            raise NotFoundError(404)
+        db.session.query(Vote).filter(Vote.scheme_id == id).delete()
+        db.session.query(usercurrentvote).filter(usercurrentvote.scheme_id == id).delete()
         db.session.delete(scheme)
         db.session.commit()
-        return make_response(json.dumps({'Success': 'Scheme deleted'}), 200)
-    
+        return {'message': 'Scheme deleted successfully'}
+
 #=================================Vote api======================================================
     
 class VoteApi(Resource):
-    @marshal_with(vote_filelds)
-    def get(self):
-        data = []
-        votes = Vote.query.all()
-        for vote in votes:
-            data.append({'id': vote.id, 'user_id': vote.user_id, 'scheme_id': vote.scheme_id, 'vote_value': vote.vote_value})
-        return data
     
     @marshal_with(vote_filelds)
     def post(self):
         args = create_vote_parser.parse_args()
-        vote = Vote(user_id=args['user_id'], scheme_id=args['scheme_id'], vote_value=args['vote_value'])
-        db.session.add(vote)
-        db.session.commit()
+        user_id = args.get('user_id', None)
+        scheme_id = args.get('scheme_id', None)
+        vote = args.get('vote', None)
+        if not user_id:
+            raise BusinessValidationError(400, "BE1003", "User id is required")
+        if not scheme_id:
+            raise BusinessValidationError(400, "BE1004", "Scheme id is required")
+        if vote is None:
+            raise BusinessValidationError(400, "BE1005", "Vote is required")
+        vote = Vote(user_id=user_id, scheme_id=scheme_id, vote=vote)
+        #delete the entry from usercurrentvote table and add the vote to vote table
+        usercurrentvote = usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()
+        if usercurrentvote:
+            db.session.delete(usercurrentvote)
+            db.session.add(vote)
+            db.session.commit()
+        else:
+            raise BusinessValidationError(400, "BE1006", "User is not allowed to vote")
         return vote
     
-    @marshal_with(vote_filelds)
-    def put(self, id):
-        args = update_vote_parser.parse_args()
-        vote = Vote.query.filter(Vote.id == id).one()
-        vote.user_id = args['user_id']
-        vote.scheme_id = args['scheme_id']
-        vote.vote_value = args['vote_value']
-        db.session.commit()
-        return vote
+
+#==============================API Endpoints========================================
+api.add_resource(SchemeApi, '/scheme', '/scheme/<int:uid>')
+api.add_resource(VoteApi, '/vote')
+
     
-    def delete(self, id):
-        vote = Vote.query.filter(Vote.id == id).one()
-        db.session.delete(vote)
-        db.session.commit()
-        return make_response(json.dumps({'Success': 'Vote deleted'}), 200)
-
-
-
-
-
-
-
-
+    
