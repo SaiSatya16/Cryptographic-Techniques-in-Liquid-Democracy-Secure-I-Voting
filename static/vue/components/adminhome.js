@@ -32,6 +32,14 @@ const Adminhome = Vue.component("adminhome", {
                                 <button type="button" class="btn btn-sm btn-outline-secondary" :data-bs-target="'#editSchemeModal' + scheme.id" data-bs-toggle="modal">Edit</button>
                                 <button type="button" class="btn btn-sm btn-outline-danger" @click="deleteScheme(scheme.id)">Delete</button>
                             </div>
+                            <div class="progress mt-3">
+                                  <div class="progress-bar bg-success" role="progressbar" :style="'width:' + scheme.true_vote_percentage + '%'">
+                                    <span>{{ scheme.true_vote_percentage }}%</span>
+                                  </div>
+                                  <div class="progress-bar bg-danger" role="progressbar" :style="'width:' + scheme.false_vote_percentage + '%'">
+                                    <span>{{ scheme.false_vote_percentage }}%</span>
+                                  </div>
+                            </div>
                             </li>
                         </ul>
                         </div>

@@ -86,23 +86,48 @@ class SchemeApi(Resource):
     def get(self, id):
         data = []
         schemes = Scheme.query.all()
-        
+
         for scheme in schemes:
-            allowed_to_vote = False 
-            #check if there is entry in usercurrentvote table with user_id and scheme_id
+            allowed_to_vote = False
             usercurrentvote = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).first()
+
             if usercurrentvote:
                 allowed_to_vote = True
-                votes = []
-                for vote in scheme.votes:
-                    votes.append({'id': vote.id, 'user_id': vote.user_id, 'scheme_id': vote.scheme_id, 'vote': vote.vote})
-                data.append({'id': scheme.id, 'name': scheme.name, 'description': scheme.description, 'allowed_to_vote': allowed_to_vote, 'votes': votes})
+
+            true_vote_count = 0
+            false_vote_count = 0
+
+            # Calculate true and false vote count
+            for vote in scheme.votes:
+                if vote.vote == True:
+                    true_vote_count += 1
+                else:
+                    false_vote_count += 1
+
+            total_votes = len(scheme.votes.all())  # Convert AppenderQuery to list
+
+
+            # Handle potential division by zero
+            if total_votes > 0:
+                #percentage should be upto 2 decimal places
+
+                true_vote_percentage = round((true_vote_count / total_votes) * 100, 2)
+                false_vote_percentage = round((false_vote_count / total_votes) * 100, 2)
             else:
-                votes = []
-                for vote in scheme.votes:
-                    votes.append({'id': vote.id, 'user_id': vote.user_id, 'scheme_id': vote.scheme_id, 'vote': vote.vote})
-                data.append({'id': scheme.id, 'name': scheme.name, 'description': scheme.description, 'votes': votes, 'allowed_to_vote': allowed_to_vote})
+                true_vote_percentage = 0
+                false_vote_percentage = 0
+
+            data.append({
+                'id': scheme.id,
+                'name': scheme.name,
+                'description': scheme.description,
+                'allowed_to_vote': allowed_to_vote,
+                'true_vote_percentage': true_vote_percentage,
+                'false_vote_percentage': false_vote_percentage
+            })
+
         return data
+
     
     @marshal_with(scheme_fields)
     @auth_required('token')

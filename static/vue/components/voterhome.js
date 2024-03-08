@@ -11,7 +11,7 @@ const Voterhome = Vue.component("adminhome", {
                         <div class="alert alert-danger" v-if="error">
                         {{ error }}
                         </div>
-                        <div class="mt-4">
+                        <div class="mt-2">
                         <div v-if="schemes.length == 0">
                             <p class="text-center">No schemes available</p>
                         </div>
@@ -35,7 +35,16 @@ const Voterhome = Vue.component("adminhome", {
                                 </div>
                                 </div>
                                 <div v-else>
-                                <button type="button" class="btn btn-sm btn-outline-primary" disabled> You have already voted</button>
+                                <div class="progress">
+                                  <div class="progress-bar bg-success" role="progressbar" :style="'width:' + scheme.true_vote_percentage + '%'">
+                                    <span>{{ scheme.true_vote_percentage }}%</span>
+                                  </div>
+                                  <div class="progress-bar bg-danger" role="progressbar" :style="'width:' + scheme.false_vote_percentage + '%'">
+                                    <span>{{ scheme.false_vote_percentage }}%</span>
+                                  </div>
+                                </div>
+
+                                </div>
                                 
                                 </li>
                             </ul>
