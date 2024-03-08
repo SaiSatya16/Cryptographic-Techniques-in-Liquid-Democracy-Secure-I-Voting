@@ -68,6 +68,13 @@ def user_registration():
             password=generate_password_hash(password),
             roles=["Voter"])
         db.session.commit()
+
+        uid = User.query.filter_by(email=email).first().id
+        schemes = Scheme.query.all()
+        for scheme in schemes:
+            usercurrentvote = Usercurrentvote(user_id=uid, scheme_id=scheme.id, vote=None)
+            db.session.add(usercurrentvote)
+        db.session.commit()
         return jsonify({"message": "Voter Created"}), 201
 
 if __name__ == "__main__":

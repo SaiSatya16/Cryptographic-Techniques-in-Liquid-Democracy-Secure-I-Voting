@@ -86,7 +86,7 @@ class SchemeApi(Resource):
         schemes = Scheme.query.all()
         
         for scheme in schemes:
-            allowed_to_vote = False
+            allowed_to_vote = False 
             #check if there is entry in usercurrentvote table with user_id and scheme_id
             usercurrentvote = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).first()
             if usercurrentvote:
@@ -166,6 +166,11 @@ class VoteApi(Resource):
             raise BusinessValidationError(400, "BE1004", "Scheme id is required")
         if vote is None:
             raise BusinessValidationError(400, "BE1005", "Vote is required")
+        
+        if vote == 'true':
+            vote = True
+        elif vote == 'false':
+            vote = False
         vote = Vote(user_id=user_id, scheme_id=scheme_id, vote=vote)
         #delete the entry from usercurrentvote table and add the vote to vote table
         usercurrentvote = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()

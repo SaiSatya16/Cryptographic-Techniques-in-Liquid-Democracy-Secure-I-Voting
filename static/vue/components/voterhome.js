@@ -1,6 +1,50 @@
 const Voterhome = Vue.component("adminhome", {
     template:  
     `
+    <div class="main-container pb-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 offset-lg-2">
+                    <div class="jumbotron pt-3 pb-3">
+                        <h1 class="display-4 greeting">Welcome, {{username}}!</h1>
+                        </div>
+                        <div class="alert alert-danger" v-if="error">
+                        {{ error }}
+                        </div>
+                        <div class="mt-4">
+                        <div v-if="schemes.length == 0">
+                            <p class="text-center">No schemes available</p>
+                        </div>
+                        <div v-else>
+                            <h2>Available Schemes</h2>
+                            <ul class="list-group">
+                                <li class="list-group-item" v-for="scheme in schemes" :key="scheme.id">
+                                <h5>{{ scheme.name }}</h5>
+                                <p muted>{{ scheme.description }}</p>
+                                <div v-if="scheme.allowed_to_vote">
+                                <div class="btn-group" role="group">
+                                <div class="form-check form-check-inline"> 
+                                <input class="form-check form-check-inline" type="radio" :name="'agree'+scheme.id" :id="'agree'+scheme.id" value="true" v-model="scheme.Vote">
+                                <label class="form-check form-check-inline" :for="'agree'+scheme.id">Agree</label>
+
+                                <input class="form-check form-check-inline" type="radio" :name="'disagree'+scheme.id" :id="'disagree'+scheme.id" value="false" v-model="scheme.Vote">
+                                <label class="form-check form-check-inline" :for="'disagree'+scheme.id">Disagree</label>
+
+                                <button type="button" class="btn btn-sm btn-outline-primary" @click="vote(scheme)">Vote</button>
+                                </div>
+                                </div>
+                                </div>
+                                <div v-else>
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled> You have already voted</button>
+                                
+                                </li>
+                            </ul>
+                            </div>
+                            </div>
+                    </div> 
+                 </div> 
+              </div> 
+            </div>
 
     
     
@@ -13,7 +57,6 @@ const Voterhome = Vue.component("adminhome", {
             user_id: localStorage.getItem("id"),
             error: null,
             schemes: [],
-            vote: null,
         }
     },
     methods: {
@@ -48,7 +91,7 @@ const Voterhome = Vue.component("adminhome", {
               body: JSON.stringify({
                 scheme_id: scheme.id,
                 user_id: this.user_id,
-                vote: this.vote,
+                vote: scheme.Vote,  
               }),
             });
             if (res.ok) {
@@ -61,7 +104,11 @@ const Voterhome = Vue.component("adminhome", {
           },
 
 
-}
+},
+    mounted() {
+        this.getschemes();
+        Document.title = "Voter Home";
+    }
 
 
 });
