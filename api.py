@@ -81,6 +81,8 @@ update_vote_parser.add_argument('vote')
 #=================================Scheme api======================================================
 
 class SchemeApi(Resource):
+    @auth_required('token')
+    @any_role_required('admin', 'voter')
     def get(self, id):
         data = []
         schemes = Scheme.query.all()
@@ -103,6 +105,8 @@ class SchemeApi(Resource):
         return data
     
     @marshal_with(scheme_fields)
+    @auth_required('token')
+    @any_role_required('admin')
     def post(self):
         args = create_scheme_parser.parse_args()
         name = args.get('name', None)
@@ -126,6 +130,8 @@ class SchemeApi(Resource):
         return scheme   
     
     @marshal_with(scheme_fields)
+    @auth_required('token')
+    @any_role_required('admin')
     def put(self, id):
         args = update_scheme_parser.parse_args()
         name = args.get('name', None)
@@ -140,6 +146,8 @@ class SchemeApi(Resource):
         db.session.commit()
         return scheme
     
+    @auth_required('token')
+    @any_role_required('admin')
     def delete(self, id):
         scheme = Scheme.query.filter_by(id=id).first()
         if not scheme:
@@ -155,6 +163,8 @@ class SchemeApi(Resource):
 class VoteApi(Resource):
     
     @marshal_with(vote_filelds)
+    @auth_required('token')
+    @any_role_required('voter')
     def post(self):
         args = create_vote_parser.parse_args()
         user_id = args.get('user_id', None)
