@@ -9,6 +9,13 @@ import os
 from functools import wraps
 from flask import abort
 from flask_security import roles_accepted
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad, unpad
+import base64
+import boto3 
+from Crypto.Util.Padding import unpad
+
 
 api = Api()
 
@@ -80,7 +87,70 @@ update_vote_parser.add_argument('vote')
 
 #=================================Scheme api======================================================
 
+
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+import base64
+
+kms = boto3.client('kms', region_name='ap-south-1')
+ENCRYPTION_KEY_ID = 'd7026871-8686-436e-9f80-e285c6a7370d' 
+
+# Define a test plaintext
+plaintext = "This is a test plaintext."
+
+def get_encryption_key():
+    response = kms.generate_data_key(
+        KeyId=ENCRYPTION_KEY_ID,  # The ID of the KMS key
+        KeySpec='AES_128'  # The desired key specification
+    )
+    return response['Plaintext']
+
+# Generate a test encryption key
+# Generate or retrieve the encryption key
+encryption_key = get_encryption_key() # 16-byte key for AES-128
+
+# Encryption function
+def encrypt_data(data, key):
+    cipher = AES.new(key, AES.MODE_CBC)
+    padded_data = pad(data.encode(), AES.block_size, style='x923')
+    ciphertext = cipher.encrypt(padded_data)
+    iv = base64.b64encode(cipher.iv).decode('utf-8')
+    ciphertext = base64.b64encode(ciphertext).decode('utf-8')
+    return iv, ciphertext
+
+# Decryption function
+def decrypt_data(encrypted_data, iv, key):
+    try:
+        cipher = AES.new(key, AES.MODE_CBC, base64.b64decode(iv))
+        decrypted_data = cipher.decrypt(base64.b64decode(encrypted_data))
+        try:
+            unpadded_data = unpad(decrypted_data, AES.block_size, style='x923')
+            decrypted_string = unpadded_data.decode('utf-8')
+            return decrypted_string
+        except ValueError as e:
+            print(f"Error unpadding decrypted data: {e}")
+            return None
+    except Exception as e:
+        print(f"Error decrypting data: {e}")
+        return None
+
+# Encrypt the plaintext
+iv, ciphertext = encrypt_data(plaintext, encryption_key)
+print(f"Encrypted data: {ciphertext}")
+
+# Decrypt the ciphertext
+decrypted_text = decrypt_data(ciphertext, iv, encryption_key)
+print(f"Decrypted text: {decrypted_text}")
+
+
+
+
+
+
+
 class SchemeApi(Resource):
+    def __init__(self, encryption_key):
+        self.encryption_key = encryption_key
     @auth_required('token')
     @any_role_required('admin', 'voter')
     def get(self, id):
@@ -99,18 +169,27 @@ class SchemeApi(Resource):
 
             # Calculate true and false vote count
             for vote in scheme.votes:
-                if vote.vote == True:
+                decrypted_vote = decrypt_data(vote.vote, vote.iv, encryption_key)
+                if decrypted_vote == 'true':
                     true_vote_count += 1
-                else:
+                elif decrypted_vote == 'false':
                     false_vote_count += 1
 
-            total_votes = len(scheme.votes.all())  # Convert AppenderQuery to list
+            # Count delegated votes
+            user = User.query.get(id)
+            for delegatee in user.delegates:
+                delegatee_votes = Vote.query.filter_by(user_id=delegatee.delegatee_id, scheme_id=scheme.id).all()
+                for delegatee_vote in delegatee_votes:
+                    decrypted_vote = decrypt_data(delegatee_vote.vote, delegatee_vote.iv, encryption_key)
+                    if decrypted_vote == 'true':
+                        true_vote_count += 1
+                    elif decrypted_vote == 'false':
+                        false_vote_count += 1
 
+            total_votes = true_vote_count + false_vote_count
 
             # Handle potential division by zero
             if total_votes > 0:
-                #percentage should be upto 2 decimal places
-
                 true_vote_percentage = round((true_vote_count / total_votes) * 100, 2)
                 false_vote_percentage = round((false_vote_count / total_votes) * 100, 2)
             else:
@@ -127,7 +206,6 @@ class SchemeApi(Resource):
             })
 
         return data
-
     
     @marshal_with(scheme_fields)
     @auth_required('token')
@@ -186,7 +264,9 @@ class SchemeApi(Resource):
 #=================================Vote api======================================================
     
 class VoteApi(Resource):
-    
+    def __init__(self, encryption_key):
+        self.encryption_key = encryption_key
+
     @marshal_with(vote_filelds)
     @auth_required('token')
     @any_role_required('voter')
@@ -202,25 +282,116 @@ class VoteApi(Resource):
         if vote is None:
             raise BusinessValidationError(400, "BE1005", "Vote is required")
         
-        if vote == 'true':
-            vote = True
-        elif vote == 'false':
-            vote = False
-        vote = Vote(user_id=user_id, scheme_id=scheme_id, vote=vote)
-        #delete the entry from usercurrentvote table and add the vote to vote table
-        usercurrentvote = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()
-        if usercurrentvote:
-            db.session.delete(usercurrentvote)
+        # Generate or retrieve the encryption key
+        key = encryption_key
+        
+        # Encrypt the vote before storing it in the database
+        iv, encrypted_vote = encrypt_data(vote, key)
+
+        # iv, ciphertext = encrypt_data(plaintext, key)
+        
+        vote = Vote(user_id=user_id, scheme_id=scheme_id, vote=encrypted_vote, iv=iv)
+        # delete the entry from usercurrentvote table and add the vote to vote table
+        user_current_vote = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()
+        if user_current_vote:
+            db.session.delete(user_current_vote)
             db.session.add(vote)
             db.session.commit()
         else:
             raise BusinessValidationError(400, "BE1006", "User is not allowed to vote")
-        return vote
+        return vote 
     
 
+class DelegationApi(Resource):
+    def __init__(self):
+        self.parser = reqparse.RequestParser()
+        self.parser.add_argument('delegator_id', type=int, required=True, help='Delegator user ID is required')
+        self.parser.add_argument('delegatee_id', type=int, required=True, help='Delegatee user ID is required')
+        self.parser.add_argument('scheme_id', type=int, required=True, help='Scheme ID is required')
+
+    @auth_required('token')
+    def post(self):
+        args = self.parser.parse_args()
+        delegator_id = args['delegator_id']
+        delegatee_id = args['delegatee_id']
+        scheme_id = args['scheme_id']
+
+        delegator = User.query.get(delegator_id)
+        delegatee = User.query.get(delegatee_id)
+        scheme = Scheme.query.get(scheme_id)
+
+        if not delegator or not delegatee or not scheme:
+            return {'message': 'Invalid user ID(s) or scheme ID'}, 400
+
+        if delegator.is_delegating_to(delegatee, scheme_id):
+            return {'message': 'Delegation already exists for this scheme'}, 400
+
+        # Transfer delegator's current vote to delegatee's current vote
+        delegator_current_vote = Usercurrentvote.query.filter_by(user_id=delegator_id, scheme_id=scheme.id).first()
+        delegatee_current_vote = Usercurrentvote.query.filter_by(user_id=delegatee_id, scheme_id=scheme.id).first()
+
+        if delegator_current_vote:
+            if delegatee_current_vote:
+                # Create a new current vote record for the delegatee with the delegator's vote
+                new_delegatee_vote = Usercurrentvote(user_id=delegatee_id, scheme_id=scheme.id, vote=delegator_current_vote.vote)
+                db.session.add(new_delegatee_vote)
+            else:
+                # Update the delegatee's current vote record with the delegator's vote
+                delegatee_current_vote = Usercurrentvote(user_id=delegatee_id, scheme_id=scheme.id, vote=delegator_current_vote.vote)
+                db.session.add(delegatee_current_vote)
+
+            # Delete the delegator's current vote record
+            db.session.delete(delegator_current_vote)
+            db.session.commit()
+
+        delegator.delegate_to(delegatee, scheme_id)
+        return {'message': 'Delegation successful'}
+
+    @auth_required('token')
+    def delete(self):
+        args = self.parser.parse_args()
+        delegator_id = args['delegator_id']
+        delegatee_id = args['delegatee_id']
+        scheme_id = args['scheme_id']
+
+        delegator = User.query.get(delegator_id)
+        delegatee = User.query.get(delegatee_id)
+        scheme = Scheme.query.get(scheme_id)
+
+        if not delegator or not delegatee or not scheme:
+            return {'message': 'Invalid user ID(s) or scheme ID'}, 400
+
+        if not delegator.is_delegating_to(delegatee, scheme_id):
+            return {'message': 'No delegation found for this scheme'}, 400
+
+        delegator.undelegate_to(delegatee, scheme_id)
+        return {'message': 'Delegation removed successfully'}
+
+    @auth_required('token')
+    def get(self, user_id):
+        user = User.query.get(user_id)
+        if not user:
+            return {'message': 'Invalid user ID'}, 400
+
+        delegations = {}
+        for scheme in Scheme.query.all():
+            delegated_to = user.delegates.filter_by(scheme_id=scheme.id).first()
+            if delegated_to:
+                delegatee = User.query.get(delegated_to.delegatee_id)
+                delegations[scheme.id] = {
+                    'delegatee_id': delegatee.id,
+                    'delegatee_username': delegatee.username
+                }
+            else:
+                delegations[scheme.id] = {}
+
+        return delegations
+
 #==============================API Endpoints========================================
-api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>')
-api.add_resource(VoteApi, '/vote')
+api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>', resource_class_kwargs={'encryption_key': encryption_key})
+api.add_resource(VoteApi, '/vote', resource_class_kwargs={'encryption_key': encryption_key})
+api.add_resource(DelegationApi, '/delegation', '/delegation/<int:user_id>')
+
 
     
     
