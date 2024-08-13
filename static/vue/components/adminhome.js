@@ -12,8 +12,6 @@ const Adminhome = Vue.component("adminhome", {
                         <button class="add-course-btn" data-bs-toggle="modal" data-bs-target="#addSchemeModal">Add Scheme
                             <i class="fa fa-plus" aria-hidden="true"></i>
                         </button>
-
-
                     </div>
                     <div class="alert alert-danger" v-if="error">
                     {{ error }}
@@ -97,16 +95,7 @@ const Adminhome = Vue.component("adminhome", {
                 </div>
             </div>
         </div>
-                
-
-
-
-
           </div> 
-                
-
-
-    
     `,
 
     data () {
@@ -165,7 +154,6 @@ const Adminhome = Vue.component("adminhome", {
             this.error = data.error_message;
             }
         },
-
         async deleteScheme(id) {
             const res = await fetch("/scheme/" + id, {
             method: "DELETE",
@@ -183,7 +171,6 @@ const Adminhome = Vue.component("adminhome", {
             this.error = data.error_message;
             }
         },
-
         async editScheme(scheme) {
             const res = await fetch("/scheme/" + scheme.id, {
             method: "PUT",
@@ -205,16 +192,12 @@ const Adminhome = Vue.component("adminhome", {
             this.error = data.error_message;
             }
         }
-
-
-
     },
 
     mounted: function () {
         this.getschemes();
         document.title = "Admin Home";
     },
-
 });
 
 export default Adminhome;

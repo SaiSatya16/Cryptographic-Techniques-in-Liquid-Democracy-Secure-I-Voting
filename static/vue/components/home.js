@@ -28,8 +28,5 @@ const Home = Vue.component("home", {
     mounted() {
         Document.title = "Home";
     }
-
-
 });
-
 export default Home;

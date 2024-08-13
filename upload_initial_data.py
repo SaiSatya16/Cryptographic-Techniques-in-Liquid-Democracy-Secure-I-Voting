@@ -22,6 +22,12 @@ with app.app_context():
             email="voter1@gmail.com",
             password=generate_password_hash("voter1"),
             roles=["Voter"])
+    if not datastore.find_user(email="sai@gmail.com"):
+        datastore.create_user(
+            username="sai",
+            email="sai@gmail.com",
+            password=generate_password_hash("sai"),
+            roles=["Voter"])
     db.session.commit()
 
 

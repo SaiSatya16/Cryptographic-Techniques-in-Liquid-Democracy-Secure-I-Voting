@@ -3,7 +3,7 @@ from model import *
 from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 import json
-from flask import make_response
+from flask import make_response, request
 from flask_security import auth_required, roles_required
 import os
 from functools import wraps
@@ -175,16 +175,16 @@ class SchemeApi(Resource):
                 elif decrypted_vote == 'false':
                     false_vote_count += 1
 
-            # Count delegated votes
-            user = User.query.get(id)
-            for delegatee in user.delegates:
-                delegatee_votes = Vote.query.filter_by(user_id=delegatee.delegatee_id, scheme_id=scheme.id).all()
-                for delegatee_vote in delegatee_votes:
-                    decrypted_vote = decrypt_data(delegatee_vote.vote, delegatee_vote.iv, encryption_key)
-                    if decrypted_vote == 'true':
-                        true_vote_count += 1
-                    elif decrypted_vote == 'false':
-                        false_vote_count += 1
+            # # Count delegated votes
+            # user = User.query.get(id)
+            # for delegatee in user.delegates:
+            #     delegatee_votes = Vote.query.filter_by(user_id=delegatee.delegatee_id, scheme_id=scheme.id).all()
+            #     for delegatee_vote in delegatee_votes:
+            #         decrypted_vote = decrypt_data(delegatee_vote.vote, delegatee_vote.iv, encryption_key)
+            #         if decrypted_vote == 'true':
+            #             true_vote_count += 1
+            #         elif decrypted_vote == 'false':
+            #             false_vote_count += 1
 
             total_votes = true_vote_count + false_vote_count
 
@@ -195,6 +195,11 @@ class SchemeApi(Resource):
             else:
                 true_vote_percentage = 0
                 false_vote_percentage = 0
+            
+            delegation = Delegation.query.filter_by(delegator_id=id, scheme_id=scheme.id).first()
+            delegated_to = None
+            if delegation:
+                delegated_to = User.query.get(delegation.delegatee_id)
 
             data.append({
                 'id': scheme.id,
@@ -202,7 +207,11 @@ class SchemeApi(Resource):
                 'description': scheme.description,
                 'allowed_to_vote': allowed_to_vote,
                 'true_vote_percentage': true_vote_percentage,
-                'false_vote_percentage': false_vote_percentage
+                'false_vote_percentage': false_vote_percentage,
+                'delegated_to': {
+                    'id': delegated_to.id,
+                    'username': delegated_to.username
+                } if delegated_to else None
             })
 
         return data
@@ -321,10 +330,14 @@ class DelegationApi(Resource):
         scheme = Scheme.query.get(scheme_id)
 
         if not delegator or not delegatee or not scheme:
-            return {'message': 'Invalid user ID(s) or scheme ID'}, 400
+            return {'error_message': 'Invalid user ID(s) or scheme ID'}, 400
 
         if delegator.is_delegating_to(delegatee, scheme_id):
-            return {'message': 'Delegation already exists for this scheme'}, 400
+            return {'error_message': 'Delegation already exists for this scheme'}, 400
+        
+        existing_delegation = Delegation.query.filter_by(delegator_id=delegatee_id, delegatee_id=delegator_id, scheme_id=scheme_id).first()
+        if existing_delegation:
+            return {'error_message': 'Cannot delegate to a user who has already delegated to you for this scheme'}, 400
 
         # Transfer delegator's current vote to delegatee's current vote
         delegator_current_vote = Usercurrentvote.query.filter_by(user_id=delegator_id, scheme_id=scheme.id).first()
@@ -386,11 +399,19 @@ class DelegationApi(Resource):
                 delegations[scheme.id] = {}
 
         return delegations
+class VoterListApi(Resource):
+    @auth_required('token')
+    def get(self):
+        current_user_id = int(request.args.get('current_user_id'))
+        voters = User.query.join(RolesUsers).join(Role).filter(Role.name == 'Voter', User.id != current_user_id).all()
+        return [{'id': voter.id, 'username': voter.username} for voter in voters]
+
 
 #==============================API Endpoints========================================
 api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>', resource_class_kwargs={'encryption_key': encryption_key})
 api.add_resource(VoteApi, '/vote', resource_class_kwargs={'encryption_key': encryption_key})
 api.add_resource(DelegationApi, '/delegation', '/delegation/<int:user_id>')
+api.add_resource(VoterListApi, '/voters')
 
 
     

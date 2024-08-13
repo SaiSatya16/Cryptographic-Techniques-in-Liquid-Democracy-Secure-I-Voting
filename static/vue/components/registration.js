@@ -77,6 +77,5 @@ const Registration = Vue.component('registration', {
       document.title = 'Registration';
     },
   });
-  
   export default Registration;
   

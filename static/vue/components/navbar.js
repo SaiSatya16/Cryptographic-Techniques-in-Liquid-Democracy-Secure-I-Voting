@@ -6,36 +6,29 @@ const Navbar = Vue.component("Navbar", {
       <a class="navbar-brand" href="/">
         <span class="navbar-head">LIQUID DEMOCRACY</span>
       </a>
-  
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavAltMarkup" aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
       </button>
-  
       <div class="collapse navbar-collapse" id="navbarNavAltMarkup">
         <ul class="navbar-nav ms-auto">
-  
           <li class="nav-item active mr-3">
             <a class="nav-link" href="/#/" style="display: flex; flex-direction: column; align-items: center; text-align: center;">
               <i class="fas fa-home fa-lg text-center" style="color: black"></i>
               <router-link class="menutext mt-2" to="/">Home</router-link>
             </a>
           </li>
-  
           <li class="nav-item mr-3">
             <a class="nav-link" href="/#/about" style="display: flex; flex-direction: column; align-items: center; text-align: center;">
               <i class="fas fa-info-circle fa-lg text-center" style="color: black"></i>
               <div class="menutext mt-2"><router-link class="menutext mt-2" to="/about">About Us</router-link></div>
             </a>
           </li>
-  
           <li class="nav-item logout-thor mr-3">
             <a @click='logout' class="nav-link active d-lg-block" style="display: flex; flex-direction: column; align-items: center; text-align: center; border: none; background: none;">
-              
                 <i class="fas fa-sign-out-alt fa-lg text-center" style="color: black"></i>
               <div class="menutext">Logout</div>
             </a>
           </li>
-  
         </ul>
       </div>
     </div>
