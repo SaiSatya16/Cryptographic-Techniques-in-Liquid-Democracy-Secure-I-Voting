@@ -316,24 +316,19 @@ class VoteApi(Resource):
         if vote is None:
             raise BusinessValidationError(400, "BE1005", "Vote is required")
         
-        # Generate or retrieve the encryption key
-        key = encryption_key
-        
-        # Encrypt the vote before storing it in the database
-        iv, encrypted_vote = encrypt_data(vote, key)
-
-        # iv, ciphertext = encrypt_data(plaintext, key)
-        
-        vote = Vote(user_id=user_id, scheme_id=scheme_id, vote=encrypted_vote, iv=iv)
-        # delete the entry from usercurrentvote table and add the vote to vote table
-        user_current_vote = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).first()
-        if user_current_vote:
+        user_current_votes_count = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).count()
+        for i in range(user_current_votes_count):
+            key = encryption_key
+            iv, encrypted_vote = encrypt_data(vote, key)
+            vote_ = Vote(user_id=user_id, scheme_id=scheme_id, vote=encrypted_vote, iv=iv)
+            db.session.add(vote_)
+        #delete all the entries from usercurrentvote table
+        user_current_votes = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).all()
+        for user_current_vote in user_current_votes:
             db.session.delete(user_current_vote)
-            db.session.add(vote)
-            db.session.commit()
-        else:
-            raise BusinessValidationError(400, "BE1006", "User is not allowed to vote")
-        return vote 
+        db.session.commit()
+
+        return vote_
     
 
 class DelegationApi(Resource):
