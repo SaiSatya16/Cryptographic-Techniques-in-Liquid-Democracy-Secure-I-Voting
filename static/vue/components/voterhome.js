@@ -20,6 +20,7 @@ const Voterhome = Vue.component("voterhome", {
                               <li class="list-group-item" v-for="scheme in schemes" :key="scheme.id">
                                   <h5>{{ scheme.name }}</h5>
                                   <p class="text-muted">{{ scheme.description }}</p>
+                                    <p class="text-muted">number of votes: {{ scheme.usercurrentvote_count }}</p>
                                   <div v-if="!scheme.delegated_to">
                                       <div v-if="scheme.allowed_to_vote">
                                           <div class="btn-group" role="group">
@@ -81,7 +82,7 @@ const Voterhome = Vue.component("voterhome", {
                                       <div class="mt-2">
                                           <select v-model="scheme.delegateeId" class="form-control">
                                               <option value="">Select a voter to delegate</option>
-                                              <option v-for="voter in voters" :key="voter.id" :value="voter.id">
+                                              <option v-for="voter in scheme.not_delegated_users" :key="voter.id" :value="voter.id">
                                                   {{ voter.username }}
                                               </option>
                                           </select>
@@ -150,7 +151,7 @@ const Voterhome = Vue.component("voterhome", {
           user_id: localStorage.getItem("id"),
           error: null,
           schemes: [],
-          voters: [],
+        //   voters: [],
           showWarning: false,
           currentScheme: null,
       };
@@ -199,22 +200,22 @@ const Voterhome = Vue.component("voterhome", {
           }
       },
 
-      async getVoters() {
-        const res = await fetch(`/voters?current_user_id=${this.user_id}`, {
-            method: "GET",
-            headers: {
-                "Content-Type": "application/json",
-                "Authentication-Token": this.token,
-                "Authentication-Role": this.userRole,
-            },
-        });
-        if (res.ok) {
-            this.voters = await res.json();
-        } else {
-            const data = await res.json();
-            this.error = data.error_message;
-        }
-    },
+    //   async getVoters() {
+    //     const res = await fetch(`/voters?current_user_id=${this.user_id}`, {
+    //         method: "GET",
+    //         headers: {
+    //             "Content-Type": "application/json",
+    //             "Authentication-Token": this.token,
+    //             "Authentication-Role": this.userRole,
+    //         },
+    //     });
+    //     if (res.ok) {
+    //         this.voters = await res.json();
+    //     } else {
+    //         const data = await res.json();
+    //         this.error = data.error_message;
+    //     }
+    // },
 
       showDelegationWarning(scheme) {
           if (!scheme.delegateeId) {
@@ -257,7 +258,7 @@ const Voterhome = Vue.component("voterhome", {
   },
   mounted() {
     this.getschemes();
-    this.getVoters();
+    // this.getVoters();
     document.title = "Voter Home";
 },
 });

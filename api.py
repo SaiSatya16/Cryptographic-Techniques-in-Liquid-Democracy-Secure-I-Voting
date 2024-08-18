@@ -159,7 +159,10 @@ class SchemeApi(Resource):
 
         for scheme in schemes:
             allowed_to_vote = False
+            usercurrentvote_count = 0
             usercurrentvote = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).first()
+            #calculate number of usercurrentvote
+            usercurrentvote_count = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).count()
 
             if usercurrentvote:
                 allowed_to_vote = True
@@ -175,16 +178,16 @@ class SchemeApi(Resource):
                 elif decrypted_vote == 'false':
                     false_vote_count += 1
 
-            # # Count delegated votes
-            # user = User.query.get(id)
-            # for delegatee in user.delegates:
-            #     delegatee_votes = Vote.query.filter_by(user_id=delegatee.delegatee_id, scheme_id=scheme.id).all()
-            #     for delegatee_vote in delegatee_votes:
-            #         decrypted_vote = decrypt_data(delegatee_vote.vote, delegatee_vote.iv, encryption_key)
-            #         if decrypted_vote == 'true':
-            #             true_vote_count += 1
-            #         elif decrypted_vote == 'false':
-            #             false_vote_count += 1
+            # Count delegated votes
+            user = User.query.get(id)
+            for delegatee in user.delegates:
+                delegatee_votes = Vote.query.filter_by(user_id=delegatee.delegatee_id, scheme_id=scheme.id).all()
+                for delegatee_vote in delegatee_votes:
+                    decrypted_vote = decrypt_data(delegatee_vote.vote, delegatee_vote.iv, encryption_key)
+                    if decrypted_vote == 'true':
+                        true_vote_count += 1
+                    elif decrypted_vote == 'false':
+                        false_vote_count += 1
 
             total_votes = true_vote_count + false_vote_count
 
@@ -200,6 +203,26 @@ class SchemeApi(Resource):
             delegated_to = None
             if delegation:
                 delegated_to = User.query.get(delegation.delegatee_id)
+            
+            #filter the users who did not delegated vote to the scheme
+            total_users = User.query.filter(User.roles.any(Role.name == 'Voter')).all()
+            not_delegated_users = []
+            for user in total_users:
+                delegation = Delegation.query.filter_by(delegator_id=user.id, scheme_id=scheme.id).first()
+                if not delegation:
+                    not_delegated_users.append(user)
+            
+            if not_delegated_users != []:
+                #filter with user id if his role is voter
+                filtered_present_voter = User.query.filter(User.roles.any(Role.name == 'Voter')).filter(User.id == id).first()
+                if filtered_present_voter:
+                    if filtered_present_voter in not_delegated_users:
+                        not_delegated_users.remove(filtered_present_voter)
+
+
+                
+            
+
 
             data.append({
                 'id': scheme.id,
@@ -208,6 +231,8 @@ class SchemeApi(Resource):
                 'allowed_to_vote': allowed_to_vote,
                 'true_vote_percentage': true_vote_percentage,
                 'false_vote_percentage': false_vote_percentage,
+                'usercurrentvote_count': usercurrentvote_count,
+                'not_delegated_users': [{'id': user.id, 'username': user.username} for user in not_delegated_users],
                 'delegated_to': {
                     'id': delegated_to.id,
                     'username': delegated_to.username
@@ -339,26 +364,16 @@ class DelegationApi(Resource):
         if existing_delegation:
             return {'error_message': 'Cannot delegate to a user who has already delegated to you for this scheme'}, 400
 
-        # Transfer delegator's current vote to delegatee's current vote
-        delegator_current_vote = Usercurrentvote.query.filter_by(user_id=delegator_id, scheme_id=scheme.id).first()
-        delegatee_current_vote = Usercurrentvote.query.filter_by(user_id=delegatee_id, scheme_id=scheme.id).first()
-
-        if delegator_current_vote:
-            if delegatee_current_vote:
-                # Create a new current vote record for the delegatee with the delegator's vote
-                new_delegatee_vote = Usercurrentvote(user_id=delegatee_id, scheme_id=scheme.id, vote=delegator_current_vote.vote)
-                db.session.add(new_delegatee_vote)
-            else:
-                # Update the delegatee's current vote record with the delegator's vote
-                delegatee_current_vote = Usercurrentvote(user_id=delegatee_id, scheme_id=scheme.id, vote=delegator_current_vote.vote)
-                db.session.add(delegatee_current_vote)
-
-            # Delete the delegator's current vote record
-            db.session.delete(delegator_current_vote)
-            db.session.commit()
+        # Transfer all delegator's current vote to delegatee's current vote
+        delegator_current_votes = Usercurrentvote.query.filter_by(user_id=delegator_id, scheme_id=scheme.id).all()
+        for vote in delegator_current_votes:
+            delegatee_current_vote = Usercurrentvote(user_id=delegatee_id, scheme_id=scheme.id, vote=vote.vote)
+            db.session.add(delegatee_current_vote)
+            db.session.delete(vote)
+        db.session.commit()
 
         delegator.delegate_to(delegatee, scheme_id)
-        return {'message': 'Delegation successful'}
+        return {'message': 'Delegation added successfully'}, 201
 
     @auth_required('token')
     def delete(self):
