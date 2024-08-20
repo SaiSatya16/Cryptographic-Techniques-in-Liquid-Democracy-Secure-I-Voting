@@ -209,7 +209,9 @@ class SchemeApi(Resource):
             not_delegated_users = []
             for user in total_users:
                 delegation = Delegation.query.filter_by(delegator_id=user.id, scheme_id=scheme.id).first()
-                if not delegation:
+                already_voted = Vote.query.filter_by(user_id=user.id, scheme_id=scheme.id).first()
+
+                if not delegation and not already_voted:
                     not_delegated_users.append(user)
             
             if not_delegated_users != []:
@@ -409,19 +411,11 @@ class DelegationApi(Resource):
                 delegations[scheme.id] = {}
 
         return delegations
-class VoterListApi(Resource):
-    @auth_required('token')
-    def get(self):
-        current_user_id = int(request.args.get('current_user_id'))
-        voters = User.query.join(RolesUsers).join(Role).filter(Role.name == 'Voter', User.id != current_user_id).all()
-        return [{'id': voter.id, 'username': voter.username} for voter in voters]
-
 
 #==============================API Endpoints========================================
 api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>', resource_class_kwargs={'encryption_key': encryption_key})
 api.add_resource(VoteApi, '/vote', resource_class_kwargs={'encryption_key': encryption_key})
 api.add_resource(DelegationApi, '/delegation', '/delegation/<int:user_id>')
-api.add_resource(VoterListApi, '/voters')
 
 
     
