@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_security import UserMixin, RoleMixin
-
+from sqlalchemy.orm import aliased
 db = SQLAlchemy()
 
 
@@ -41,7 +41,32 @@ class User(db.Model, UserMixin):
         if delegation:
             db.session.delete(delegation)
             db.session.commit()
+    
+    def calculate_weight(self, scheme_id, visited=None):
+        if visited is None:
+            visited = set()
 
+        if self.id in visited:
+            return 0  # We've encountered a circular delegation, so we stop here
+
+        visited.add(self.id)
+        weight = 1
+
+        # Use a subquery to avoid recursive queries
+        subq = db.session.query(Delegation.delegator_id).filter(
+            Delegation.scheme_id == scheme_id,
+            Delegation.delegatee_id == self.id
+        ).subquery()
+
+        delegator_alias = aliased(User)
+        delegators = db.session.query(delegator_alias).join(
+            subq, subq.c.delegator_id == delegator_alias.id
+        ).all()
+
+        for delegator in delegators:
+            weight += delegator.calculate_weight(scheme_id, visited.copy())
+
+        return weight
 class Role(db.Model, RoleMixin):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String, nullable=False, unique=True)

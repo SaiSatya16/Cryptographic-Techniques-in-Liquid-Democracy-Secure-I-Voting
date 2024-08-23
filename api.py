@@ -15,6 +15,7 @@ from Crypto.Util.Padding import pad, unpad
 import base64
 import boto3 
 from Crypto.Util.Padding import unpad
+import numpy as np
 
 
 api = Api()
@@ -93,7 +94,7 @@ from Crypto.Util.Padding import pad, unpad
 import base64
 
 kms = boto3.client('kms', region_name='ap-south-1')
-ENCRYPTION_KEY_ID = 'd7026871-8686-436e-9f80-e285c6a7370d' 
+ENCRYPTION_KEY_ID = '9bec1597-e3fd-4766-b466-9fddb9a38ffa' 
 
 # Define a test plaintext
 plaintext = "This is a test plaintext."
@@ -151,6 +152,7 @@ print(f"Decrypted text: {decrypted_text}")
 class SchemeApi(Resource):
     def __init__(self, encryption_key):
         self.encryption_key = encryption_key
+
     @auth_required('token')
     @any_role_required('admin', 'voter')
     def get(self, id):
@@ -161,7 +163,6 @@ class SchemeApi(Resource):
             allowed_to_vote = False
             usercurrentvote_count = 0
             usercurrentvote = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).first()
-            #calculate number of usercurrentvote
             usercurrentvote_count = Usercurrentvote.query.filter_by(user_id=id, scheme_id=scheme.id).count()
 
             if usercurrentvote:
@@ -172,59 +173,58 @@ class SchemeApi(Resource):
 
             # Calculate true and false vote count
             for vote in scheme.votes:
-                decrypted_vote = decrypt_data(vote.vote, vote.iv, encryption_key)
+                decrypted_vote = decrypt_data(vote.vote, vote.iv, self.encryption_key)
                 if decrypted_vote == 'true':
                     true_vote_count += 1
                 elif decrypted_vote == 'false':
                     false_vote_count += 1
 
-            # Count delegated votes
-            user = User.query.get(id)
-            for delegatee in user.delegates:
-                delegatee_votes = Vote.query.filter_by(user_id=delegatee.delegatee_id, scheme_id=scheme.id).all()
-                for delegatee_vote in delegatee_votes:
-                    decrypted_vote = decrypt_data(delegatee_vote.vote, delegatee_vote.iv, encryption_key)
-                    if decrypted_vote == 'true':
-                        true_vote_count += 1
-                    elif decrypted_vote == 'false':
-                        false_vote_count += 1
-
             total_votes = true_vote_count + false_vote_count
 
-            # Handle potential division by zero
+            true_vote_percentage = 0
+            false_vote_percentage = 0
             if total_votes > 0:
                 true_vote_percentage = round((true_vote_count / total_votes) * 100, 2)
                 false_vote_percentage = round((false_vote_count / total_votes) * 100, 2)
-            else:
-                true_vote_percentage = 0
-                false_vote_percentage = 0
-            
+
             delegation = Delegation.query.filter_by(delegator_id=id, scheme_id=scheme.id).first()
             delegated_to = None
             if delegation:
-                delegated_to = User.query.get(delegation.delegatee_id)
+                delegatee = User.query.get(delegation.delegatee_id)
+                delegated_to = {
+                    'id': delegatee.id,
+                    'username': delegatee.username
+                }
+
+            not_delegated_users = User.query.filter(User.roles.any(Role.name == 'Voter'))\
+                .filter(~User.id.in_(db.session.query(Delegation.delegator_id)\
+                .filter(Delegation.scheme_id == scheme.id)))\
+                .filter(~User.id.in_(db.session.query(Vote.user_id)\
+                .filter(Vote.scheme_id == scheme.id)))\
+                .filter(User.id != id)\
+                .all()
+
+            # Calculate user weight and delegation chain length
+            user = User.query.get(id)
+            user_weight = user.calculate_weight(scheme.id)
             
-            #filter the users who did not delegated vote to the scheme
-            total_users = User.query.filter(User.roles.any(Role.name == 'Voter')).all()
-            not_delegated_users = []
-            for user in total_users:
-                delegation = Delegation.query.filter_by(delegator_id=user.id, scheme_id=scheme.id).first()
-                already_voted = Vote.query.filter_by(user_id=user.id, scheme_id=scheme.id).first()
-
-                if not delegation and not already_voted:
-                    not_delegated_users.append(user)
+            # Calculate delegation chain
+            chain = []
+            current_user = user
+            while True:
+                delegation = Delegation.query.filter_by(delegator_id=current_user.id, scheme_id=scheme.id).first()
+                if delegation:
+                    delegatee = User.query.get(delegation.delegatee_id)
+                    chain.append(delegatee.username)
+                    current_user = delegatee
+                else:
+                    break
             
-            if not_delegated_users != []:
-                #filter with user id if his role is voter
-                filtered_present_voter = User.query.filter(User.roles.any(Role.name == 'Voter')).filter(User.id == id).first()
-                if filtered_present_voter:
-                    if filtered_present_voter in not_delegated_users:
-                        not_delegated_users.remove(filtered_present_voter)
+            delegation_chain_length = len(chain)
 
-
-                
-            
-
+            # Calculate Gini coefficient
+            all_weights = [u.calculate_weight(scheme.id) for u in User.query.filter(User.roles.any(Role.name == 'Voter')).all()]
+            gini_coefficient = self.calculate_gini(all_weights)
 
             data.append({
                 'id': scheme.id,
@@ -233,15 +233,26 @@ class SchemeApi(Resource):
                 'allowed_to_vote': allowed_to_vote,
                 'true_vote_percentage': true_vote_percentage,
                 'false_vote_percentage': false_vote_percentage,
+                'true_vote_count': true_vote_count,
+                'false_vote_count': false_vote_count,
                 'usercurrentvote_count': usercurrentvote_count,
                 'not_delegated_users': [{'id': user.id, 'username': user.username} for user in not_delegated_users],
-                'delegated_to': {
-                    'id': delegated_to.id,
-                    'username': delegated_to.username
-                } if delegated_to else None
+                'delegated_to': delegated_to,
+                'userWeight': user_weight,
+                'delegationChainLength': delegation_chain_length,
+                'giniCoefficient': gini_coefficient
             })
 
         return data
+
+    def calculate_gini(self, weights):
+        sorted_weights = sorted(weights)
+        height, area = 0, 0
+        for weight in sorted_weights:
+            height += weight
+            area += height - weight / 2.
+        fair_area = height * len(weights) / 2.
+        return (fair_area - area) / fair_area
     
     @marshal_with(scheme_fields)
     @auth_required('token')
@@ -412,11 +423,61 @@ class DelegationApi(Resource):
 
         return delegations
 
-#==============================API Endpoints========================================
+class DelegationChainApi(Resource):
+    @auth_required('token')
+    def get(self, user_id, scheme_id):
+        user = User.query.get(user_id)
+        scheme = Scheme.query.get(scheme_id)
+        
+        if not user or not scheme:
+            return {'error': 'Invalid user or scheme'}, 400
+        
+        chain = [user.username]
+        current_user = user
+        while True:
+            delegation = Delegation.query.filter_by(delegator_id=current_user.id, scheme_id=scheme_id).first()
+            if delegation:
+                delegatee = User.query.get(delegation.delegatee_id)
+                chain.append(delegatee.username)
+                current_user = delegatee
+            else:
+                break
+        
+        return chain
+
+class VotingPowerDistributionApi(Resource):
+    @auth_required('token')
+    def get(self, scheme_id):
+        scheme = Scheme.query.get(scheme_id)
+        
+        if not scheme:
+            return {'error': 'Invalid scheme'}, 400
+        
+        users = User.query.filter(User.roles.any(Role.name == 'Voter')).all()
+        weights = [user.calculate_weight(scheme_id) for user in users]
+        
+        # Create bins for the histogram
+        max_weight = max(weights)
+        bin_count = min(10, len(set(weights)))  # Use at most 10 bins
+        bins = [i * max_weight / bin_count for i in range(bin_count + 1)]
+        
+        # Count weights in each bin
+        hist, _ = np.histogram(weights, bins=bins)
+        
+        # Prepare labels for each bin
+        labels = [f"{bins[i]:.2f}-{bins[i+1]:.2f}" for i in range(len(bins)-1)]
+        
+        return {
+            'labels': labels,
+            'data': hist.tolist()
+        }
+
+# Add the new API resources
 api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>', resource_class_kwargs={'encryption_key': encryption_key})
 api.add_resource(VoteApi, '/vote', resource_class_kwargs={'encryption_key': encryption_key})
 api.add_resource(DelegationApi, '/delegation', '/delegation/<int:user_id>')
-
+api.add_resource(DelegationChainApi, '/delegation-chain/<int:user_id>/<int:scheme_id>')
+api.add_resource(VotingPowerDistributionApi, '/voting-power-distribution/<int:scheme_id>')
 
     
     
