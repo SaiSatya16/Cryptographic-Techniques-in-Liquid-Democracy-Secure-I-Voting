@@ -84,7 +84,7 @@ class Vote(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     scheme_id = db.Column(db.Integer, db.ForeignKey('scheme.id'))
     vote = db.Column(db.String(32), nullable=False)
-    iv = db.Column(db.String(32), nullable=False)
+    key_secret_name = db.Column(db.String(255), nullable=False)
 
 class Usercurrentvote(db.Model):
     id = db.Column(db.Integer, primary_key=True)

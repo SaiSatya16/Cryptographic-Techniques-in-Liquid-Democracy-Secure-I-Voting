@@ -11,7 +11,8 @@ const Voterhome = Vue.component("voterhome", {
               {{ error }}
             </div>
             <div class="mt-2">
-              <div v-if="schemes.length == 0">
+              <div v-if="loading" class="loader"></div>
+              <div v-else-if="schemes.length == 0">
                 <p class="text-center">No schemes available</p>
               </div>
               <div v-else>
@@ -95,23 +96,22 @@ const Voterhome = Vue.component("voterhome", {
                       </div>
                     </div>
                     <div v-else>
-
-                    <div class="progress">
-                    <div
-                      class="progress-bar bg-success"
-                      role="progressbar"
-                      :style="'width:' + scheme.trueVotePercentage + '%'"
-                    >
-                      <span>{{ scheme.trueVotePercentage.toFixed(2) }}%</span>
-                    </div>
-                    <div
-                      class="progress-bar bg-danger"
-                      role="progressbar"
-                      :style="'width:' + scheme.falseVotePercentage + '%'"
-                    >
-                      <span>{{ scheme.falseVotePercentage.toFixed(2) }}%</span>
-                    </div>
-                  </div>
+                      <div class="progress">
+                        <div
+                          class="progress-bar bg-success"
+                          role="progressbar"
+                          :style="'width:' + scheme.trueVotePercentage + '%'"
+                        >
+                          <span>{{ scheme.trueVotePercentage.toFixed(2) }}%</span>
+                        </div>
+                        <div
+                          class="progress-bar bg-danger"
+                          role="progressbar"
+                          :style="'width:' + scheme.falseVotePercentage + '%'"
+                        >
+                          <span>{{ scheme.falseVotePercentage.toFixed(2) }}%</span>
+                        </div>
+                      </div>
                       <p>You have delegated your vote for this scheme to {{ scheme.delegated_to.username }}</p>
                     </div>
                     
@@ -169,52 +169,67 @@ const Voterhome = Vue.component("voterhome", {
       schemes: [],
       showWarning: false,
       currentScheme: null,
-      securityStrength: 128, // Assuming AES-128
-      attackProbability: Math.pow(2, -128),
+      securityStrength: 256, // Assuming AES-128
+      attackProbability: Math.pow(2, -256),
+      loading: false,
     };
   },
   methods: {
     async getSchemes() {
-      const res = await fetch("/scheme/" + this.user_id, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Authentication-Token": this.token,
-          "Authentication-Role": this.userRole,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        this.schemes = data.map(scheme => ({
-          ...scheme,
-          trueVotePercentage: (scheme.true_vote_count / (scheme.true_vote_count + scheme.false_vote_count)) * 100,
-          falseVotePercentage: (scheme.false_vote_count / (scheme.true_vote_count + scheme.false_vote_count)) * 100,
-        }));
-      } else {
-        const data = await res.json();
-        this.error = data.error_message;
+      this.loading = true;
+      try {
+        const res = await fetch("/scheme/" + this.user_id, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authentication-Token": this.token,
+            "Authentication-Role": this.userRole,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          this.schemes = data.map(scheme => ({
+            ...scheme,
+            trueVotePercentage: (scheme.true_vote_count / (scheme.true_vote_count + scheme.false_vote_count)) * 100,
+            falseVotePercentage: (scheme.false_vote_count / (scheme.true_vote_count + scheme.false_vote_count)) * 100,
+          }));
+        } else {
+          const data = await res.json();
+          this.error = data.error_message;
+        }
+      } catch (error) {
+        this.error = "An error occurred while fetching schemes.";
+      } finally {
+        this.loading = false;
       }
     },
 
     async vote(scheme) {
-      const res = await fetch("/vote", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authentication-Token": this.token,
-          "Authentication-Role": this.userRole,
-        },
-        body: JSON.stringify({
-          scheme_id: scheme.id,
-          user_id: this.user_id,
-          vote: scheme.Vote,
-        }),
-      });
-      if (res.ok) {
-        this.getSchemes();
-      } else {
-        const data = await res.json();
-        this.error = data.error_message;
+      this.loading = true;
+      try {
+        const res = await fetch("/vote", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authentication-Token": this.token,
+            "Authentication-Role": this.userRole,
+          },
+          body: JSON.stringify({
+            scheme_id: scheme.id,
+            user_id: this.user_id,
+            vote: scheme.Vote,
+          }),
+        });
+        if (res.ok) {
+          await this.getSchemes();
+        } else {
+          const data = await res.json();
+          this.error = data.error_message;
+        }
+      } catch (error) {
+        this.error = "An error occurred while voting.";
+      } finally {
+        this.loading = false;
       }
     },
 
@@ -234,56 +249,76 @@ const Voterhome = Vue.component("voterhome", {
 
     async confirmDelegation() {
       if (!this.currentScheme) return;
-
-      const res = await fetch("/delegation", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authentication-Token": this.token,
-          "Authentication-Role": this.userRole,
-        },
-        body: JSON.stringify({
-          delegator_id: this.user_id,
-          delegatee_id: this.currentScheme.delegateeId,
-          scheme_id: this.currentScheme.id,
-        }),
-      });
-      if (res.ok) {
-        this.getSchemes();
-        this.closeWarning();
-      } else {
-        const data = await res.json();
-        this.error = data.error_message;
+      this.loading = true;
+      try {
+        const res = await fetch("/delegation", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authentication-Token": this.token,
+            "Authentication-Role": this.userRole,
+          },
+          body: JSON.stringify({
+            delegator_id: this.user_id,
+            delegatee_id: this.currentScheme.delegateeId,
+            scheme_id: this.currentScheme.id,
+          }),
+        });
+        if (res.ok) {
+          await this.getSchemes();
+          this.closeWarning();
+        } else {
+          const data = await res.json();
+          this.error = data.error_message;
+        }
+      } catch (error) {
+        this.error = "An error occurred while delegating.";
+      } finally {
+        this.loading = false;
       }
     },
 
     async getDelegationChain(schemeId) {
-      const res = await fetch(`/delegation-chain/${this.user_id}/${schemeId}`, {
-        headers: {
-          "Authentication-Token": this.token,
-        },
-      });
-      if (res.ok) {
-        const chain = await res.json();
-        alert(`Your delegation chain: ${chain.join(' -> ')}`);
-      } else {
-        const data = await res.json();
-        this.error = data.error_message;
+      this.loading = true;
+      try {
+        const res = await fetch(`/delegation-chain/${this.user_id}/${schemeId}`, {
+          headers: {
+            "Authentication-Token": this.token,
+          },
+        });
+        if (res.ok) {
+          const chain = await res.json();
+          alert(`Your delegation chain: ${chain.join(' -> ')}`);
+        } else {
+          const data = await res.json();
+          this.error = data.error_message;
+        }
+      } catch (error) {
+        this.error = "An error occurred while fetching the delegation chain.";
+      } finally {
+        this.loading = false;
       }
     },
 
     async getVotingPowerDistribution(schemeId) {
-      const res = await fetch(`/voting-power-distribution/${schemeId}`, {
-        headers: {
-          "Authentication-Token": this.token,
-        },
-      });
-      if (res.ok) {
-        const distribution = await res.json();
-        this.showDistributionChart(distribution, schemeId);
-      } else {
-        const data = await res.json();
-        this.error = data.error_message;
+      this.loading = true;
+      try {
+        const res = await fetch(`/voting-power-distribution/${schemeId}`, {
+          headers: {
+            "Authentication-Token": this.token,
+          },
+        });
+        if (res.ok) {
+          const distribution = await res.json();
+          this.showDistributionChart(distribution, schemeId);
+        } else {
+          const data = await res.json();
+          this.error = data.error_message;
+        }
+      } catch (error) {
+        this.error = "An error occurred while fetching voting power distribution.";
+      } finally {
+        this.loading = false;
       }
     },
 

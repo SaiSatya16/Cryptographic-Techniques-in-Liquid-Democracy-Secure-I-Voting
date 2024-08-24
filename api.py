@@ -16,7 +16,7 @@ import base64
 import boto3 
 from Crypto.Util.Padding import unpad
 import numpy as np
-
+from botocore.exceptions import ClientError
 
 api = Api()
 
@@ -93,55 +93,65 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 import base64
 
-kms = boto3.client('kms', region_name='ap-south-1')
-ENCRYPTION_KEY_ID = '9bec1597-e3fd-4766-b466-9fddb9a38ffa' 
 
-# Define a test plaintext
-plaintext = "This is a test plaintext."
+class SecureVoting:
+    def __init__(self):
+        self.kms = boto3.client('kms', region_name='ap-south-1')
+        self.kms_key_id = '9bec1597-e3fd-4766-b466-9fddb9a38ffa'  # Your KMS key ID
+        self.secrets_manager = boto3.client('secretsmanager', region_name='ap-south-1')
 
-def get_encryption_key():
-    response = kms.generate_data_key(
-        KeyId=ENCRYPTION_KEY_ID,  # The ID of the KMS key
-        KeySpec='AES_128'  # The desired key specification
-    )
-    return response['Plaintext']
-
-# Generate a test encryption key
-# Generate or retrieve the encryption key
-encryption_key = get_encryption_key() # 16-byte key for AES-128
-
-# Encryption function
-def encrypt_data(data, key):
-    cipher = AES.new(key, AES.MODE_CBC)
-    padded_data = pad(data.encode(), AES.block_size, style='x923')
-    ciphertext = cipher.encrypt(padded_data)
-    iv = base64.b64encode(cipher.iv).decode('utf-8')
-    ciphertext = base64.b64encode(ciphertext).decode('utf-8')
-    return iv, ciphertext
-
-# Decryption function
-def decrypt_data(encrypted_data, iv, key):
-    try:
-        cipher = AES.new(key, AES.MODE_CBC, base64.b64decode(iv))
-        decrypted_data = cipher.decrypt(base64.b64decode(encrypted_data))
+    def generate_data_key(self):
         try:
-            unpadded_data = unpad(decrypted_data, AES.block_size, style='x923')
-            decrypted_string = unpadded_data.decode('utf-8')
-            return decrypted_string
-        except ValueError as e:
-            print(f"Error unpadding decrypted data: {e}")
-            return None
-    except Exception as e:
-        print(f"Error decrypting data: {e}")
-        return None
+            response = self.kms.generate_data_key(
+                KeyId=self.kms_key_id,
+                KeySpec='AES_256'
+            )
+            return response['Plaintext'], response['CiphertextBlob']
+        except ClientError as e:
+            print(f"Error generating data key: {e}")
+            raise
 
-# Encrypt the plaintext
-iv, ciphertext = encrypt_data(plaintext, encryption_key)
-print(f"Encrypted data: {ciphertext}")
+    def encrypt_vote(self, vote):
+        try:
+            plaintext_key, encrypted_key = self.generate_data_key()
+            cipher = AES.new(plaintext_key, AES.MODE_GCM)
+            ciphertext, tag = cipher.encrypt_and_digest(vote.encode())
+            
+            # Store encrypted key in AWS Secrets Manager
+            secret_name = f"vote_key_{os.urandom(16).hex()}"
+            self.secrets_manager.create_secret(
+                Name=secret_name,
+                SecretBinary=encrypted_key
+            )
+            
+            return base64.b64encode(cipher.nonce + tag + ciphertext).decode(), secret_name
+        except Exception as e:
+            print(f"Error encrypting vote: {e}")
+            raise
 
-# Decrypt the ciphertext
-decrypted_text = decrypt_data(ciphertext, iv, encryption_key)
-print(f"Decrypted text: {decrypted_text}")
+    def decrypt_vote(self, encrypted_vote, secret_name):
+        try:
+            # Retrieve encrypted key from AWS Secrets Manager
+            response = self.secrets_manager.get_secret_value(SecretId=secret_name)
+            encrypted_key = response['SecretBinary']
+            
+            # Decrypt the data key
+            key_response = self.kms.decrypt(CiphertextBlob=encrypted_key)
+            plaintext_key = key_response['Plaintext']
+            
+            # Decrypt the vote
+            encrypted_data = base64.b64decode(encrypted_vote)
+            nonce = encrypted_data[:16]
+            tag = encrypted_data[16:32]
+            ciphertext = encrypted_data[32:]
+            
+            cipher = AES.new(plaintext_key, AES.MODE_GCM, nonce=nonce)
+            decrypted_vote = cipher.decrypt_and_verify(ciphertext, tag)
+            
+            return decrypted_vote.decode()
+        except Exception as e:
+            print(f"Error decrypting vote: {e}")
+            raise
 
 
 
@@ -150,8 +160,8 @@ print(f"Decrypted text: {decrypted_text}")
 
 
 class SchemeApi(Resource):
-    def __init__(self, encryption_key):
-        self.encryption_key = encryption_key
+    def __init__(self):
+       self.secure_voting = SecureVoting()
 
     @auth_required('token')
     @any_role_required('admin', 'voter')
@@ -173,7 +183,7 @@ class SchemeApi(Resource):
 
             # Calculate true and false vote count
             for vote in scheme.votes:
-                decrypted_vote = decrypt_data(vote.vote, vote.iv, self.encryption_key)
+                decrypted_vote = self.secure_voting.decrypt_vote(vote.vote, vote.key_secret_name)
                 if decrypted_vote == 'true':
                     true_vote_count += 1
                 elif decrypted_vote == 'false':
@@ -311,8 +321,8 @@ class SchemeApi(Resource):
 #=================================Vote api======================================================
     
 class VoteApi(Resource):
-    def __init__(self, encryption_key):
-        self.encryption_key = encryption_key
+    def __init__(self):
+        self.secure_voting = SecureVoting()
 
     @marshal_with(vote_filelds)
     @auth_required('token')
@@ -331,9 +341,8 @@ class VoteApi(Resource):
         
         user_current_votes_count = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).count()
         for i in range(user_current_votes_count):
-            key = encryption_key
-            iv, encrypted_vote = encrypt_data(vote, key)
-            vote_ = Vote(user_id=user_id, scheme_id=scheme_id, vote=encrypted_vote, iv=iv)
+            encrypted_vote, secret_name = self.secure_voting.encrypt_vote(vote)
+            vote_ = Vote(user_id=user_id, scheme_id=scheme_id, vote=encrypted_vote, key_secret_name=secret_name)
             db.session.add(vote_)
         #delete all the entries from usercurrentvote table
         user_current_votes = Usercurrentvote.query.filter_by(user_id=user_id, scheme_id=scheme_id).all()
@@ -473,8 +482,8 @@ class VotingPowerDistributionApi(Resource):
         }
 
 # Add the new API resources
-api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>', resource_class_kwargs={'encryption_key': encryption_key})
-api.add_resource(VoteApi, '/vote', resource_class_kwargs={'encryption_key': encryption_key})
+api.add_resource(SchemeApi, '/scheme', '/scheme/<int:id>')
+api.add_resource(VoteApi, '/vote')
 api.add_resource(DelegationApi, '/delegation', '/delegation/<int:user_id>')
 api.add_resource(DelegationChainApi, '/delegation-chain/<int:user_id>/<int:scheme_id>')
 api.add_resource(VotingPowerDistributionApi, '/voting-power-distribution/<int:scheme_id>')
