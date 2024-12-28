@@ -97,7 +97,7 @@ import base64
 class SecureVoting:
     def __init__(self):
         self.kms = boto3.client('kms', region_name='ap-south-1')
-        self.kms_key_id = '9bec1597-e3fd-4766-b466-9fddb9a38ffa'  # Your KMS key ID
+        self.kms_key_id = os.environ.get('KMS_KEY_ID')
         self.secrets_manager = boto3.client('secretsmanager', region_name='ap-south-1')
 
     def generate_data_key(self):
